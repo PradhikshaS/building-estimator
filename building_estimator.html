@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Building Cost & Time Estimator (INR)</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            padding: 20px;
+        }
+        .card {
+            box-shadow: 0 0 15px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+        .result-section {
+            display: none;
+        }
+        .timeline-info, .labor-info {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        .labor-breakdown {
+            margin-top: 15px;
+        }
+        @media print {
+            .no-print {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="text-center">Building Cost & Time Estimator (INR)</h2>
+                    </div>
+                    <div class="card-body">
+                        <form id="estimationForm">
+                            <div class="mb-3">
+                                <label class="form-label">Square Feet</label>
+                                <input type="number" class="form-control" id="squareFeet" min="100" max="10000" value="1000" required>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Number of Floors</label>
+                                <input type="number" class="form-control" id="numFloors" min="1" max="5" value="1" required>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Quality Level</label>
+                                <select class="form-select" id="qualityLevel">
+                                    <option value="basic">Basic</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="luxury">Luxury</option>
+                                </select>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Material Grade</label>
+                                <select class="form-select" id="materialGrade">
+                                    <option value="standard">Standard</option>
+                                    <option value="premium">Premium</option>
+                                    <option value="luxury">Luxury</option>
+                                </select>
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="basement">
+                                    <label class="form-check-label">Include Basement</label>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="garage">
+                                    <label class="form-check-label">Include Garage</label>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="swimmingPool">
+                                    <label class="form-check-label">Include Swimming Pool</label>
+                                </div>
+                            </div>
+
+                            <div class="text-center">
+                                <button type="submit" class="btn btn-primary">Calculate Estimate</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card result-section" id="resultSection">
+                    <div class="card-header">
+                        <h2 class="text-center">Cost & Time Estimation Results</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-bordered">
+                                <tbody id="resultTable">
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="timelineDetails"></div>
+                        <div class="text-center mt-3 no-print">
+                            <button onclick="resetForm()" class="btn btn-primary">New Estimation</button>
+                            <button onclick="window.print()" class="btn btn-secondary">Print Estimate</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const COST_CONFIG = {
+            COST_PER_SQFT: {
+                basic: 2000,    // ₹2,000 per sq ft
+                medium: 3000,   // ₹3,000 per sq ft
+                luxury: 4000    // ₹4,000 per sq ft
+            },
+            MATERIAL_MULTIPLIER: {
+                standard: 1.0,
+                premium: 1.3,
+                luxury: 1.6
+            },
+            ADDITIONAL_COSTS: {
+                basement_per_sqft: 1000,     // ₹1,000 per sq ft
+                garage: 500000,              // ₹5,00,000
+                swimming_pool: 1000000       // ₹10,00,000
+            }
+        };
+
+        const TIME_CONFIG = {
+            BASE_DAYS_PER_FLOOR: 90,
+            ADDITIONAL_TIME: {
+                basement: 45,
+                garage: 30,
+                swimming_pool: 45
+            },
+            QUALITY_MULTIPLIER: {
+                basic: 1.0,
+                medium: 1.2,
+                luxury: 1.5
+            },
+            PHASES: {
+                foundation: 0.2,
+                structure: 0.4,
+                finishing: 0.3,
+                fixtures: 0.1
+            }
+        };
+
+        const LABOR_CONFIG = {
+            BASE_WORKERS: {
+                skilled: 4,    // per 1000 sq ft
+                unskilled: 6,
+                technical: 2
+            },
+            DAILY_WAGES: {
+                skilled: 1000,    // ₹1,000 per day
+                unskilled: 600,   // ₹600 per day
+                technical: 1500   // ₹1,500 per day
+            },
+            QUALITY_MULTIPLIER: {
+                basic: 1.0,
+                medium: 1.2,
+                luxury: 1.5
+            }
+        };
+
+        document.getElementById('estimationForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            calculateEstimate();
+        });
+
+        function formatIndianRupees(number) {
+            const formatted = number.toLocaleString('en-IN', {
+                maximumFractionDigits: 0,
+                style: 'currency',
+                currency: 'INR'
+            });
+            return formatted;
+        }
+
+        function calculateConstructionTime(params) {
+            const numFloors = parseInt(params.numFloors);
+            const qualityLevel = params.qualityLevel;
+            
+            let totalDays = numFloors * TIME_CONFIG.BASE_DAYS_PER_FLOOR;
+            
+            if (params.hasBasement) totalDays += TIME_CONFIG.ADDITIONAL_TIME.basement;
+            if (params.hasGarage) totalDays += TIME_CONFIG.ADDITIONAL_TIME.garage;
+            if (params.hasPool) totalDays += TIME_CONFIG.ADDITIONAL_TIME.swimming_pool;
+            
+            totalDays *= TIME_CONFIG.QUALITY_MULTIPLIER[qualityLevel];
+
+            const phases = {
+                foundation: Math.round(totalDays * TIME_CONFIG.PHASES.foundation),
+                structure: Math.round(totalDays * TIME_CONFIG.PHASES.structure),
+                finishing: Math.round(totalDays * TIME_CONFIG.PHASES.finishing),
+                fixtures: Math.round(totalDays * TIME_CONFIG.PHASES.fixtures)
+            };
+
+            return {
+                totalDays: Math.round(totalDays),
+                phases: phases
+            };
+        }
+
+        function calculateLaborRequirements(params) {
+            const { squareFeet, numFloors, qualityLevel, hasBasement, hasGarage, hasPool } = params;
+            const totalArea = squareFeet * numFloors;
+            const areaMultiplier = Math.ceil(totalArea / 1000);
+            const qualityMultiplier = LABOR_CONFIG.QUALITY_MULTIPLIER[qualityLevel];
+
+            let workers = {
+                skilled: Math.ceil(LABOR_CONFIG.BASE_WORKERS.skilled * areaMultiplier * qualityMultiplier),
+                unskilled: Math.ceil(LABOR_CONFIG.BASE_WORKERS.unskilled * areaMultiplier * qualityMultiplier),
+                technical: Math.ceil(LABOR_CONFIG.BASE_WORKERS.technical * areaMultiplier * qualityMultiplier)
+            };
+
+            if (hasBasement) {
+                workers.skilled += 2;
+                workers.unskilled += 3;
+                workers.technical += 1;
+            }
+            if (hasGarage) {
+                workers.skilled += 1;
+                workers.unskilled += 2;
+            }
+            if (hasPool) {
+                workers.skilled += 2;
+                workers.unskilled += 3;
+                workers.technical += 1;
+            }
+
+            const dailyLaborCost = {
+                skilled: workers.skilled * LABOR_CONFIG.DAILY_WAGES.skilled,
+                unskilled: workers.unskilled * LABOR_CONFIG.DAILY_WAGES.unskilled,
+                technical: workers.technical * LABOR_CONFIG.DAILY_WAGES.technical
+            };
+
+            const totalDailyLaborCost = Object.values(dailyLaborCost).reduce((a, b) => a + b, 0);
+            const totalWorkers = Object.values(workers).reduce((a, b) => a + b, 0);
+
+            return {
+                workers,
+                dailyLaborCost,
+                totalDailyLaborCost,
+                totalWorkers
+            };
+        }
+
+        function calculateEstimate() {
+            const squareFeet = parseFloat(document.getElementById('squareFeet').value);
+            const numFloors = parseInt(document.getElementById('numFloors').value);
+            const qualityLevel = document.getElementById('qualityLevel').value;
+            const materialGrade = document.getElementById('materialGrade').value;
+            const hasBasement = document.getElementById('basement').checked;
+            const hasGarage = document.getElementById('garage').checked;
+            const hasPool = document.getElementById('swimmingPool').checked;
+
+            const baseCost = squareFeet * COST_CONFIG.COST_PER_SQFT[qualityLevel];
+            const materialCost = baseCost * COST_CONFIG.MATERIAL_MULTIPLIER[materialGrade];
+
+            const additionalCosts = {};
+            let totalAdditional = 0;
+
+            if (hasBasement) {
+                const basementCost = squareFeet * COST_CONFIG.ADDITIONAL_COSTS.basement_per_sqft;
+                additionalCosts['Basement'] = basementCost;
+                totalAdditional += basementCost;
+            }
+
+            if (hasGarage) {
+                additionalCosts['Garage'] = COST_CONFIG.ADDITIONAL_COSTS.garage;
+                totalAdditional += COST_CONFIG.ADDITIONAL_COSTS.garage;
+            }
+
+            if (hasPool) {
+                additionalCosts['Swimming Pool'] = COST_CONFIG.ADDITIONAL_COSTS.swimming_pool;
+                totalAdditional += COST_CONFIG.ADDITIONAL_COSTS.swimming_pool;
+            }
+
+            const totalCost = materialCost + totalAdditional;
+
+            const timeEstimate = calculateConstructionTime({
+                numFloors,
+                qualityLevel,
+                hasBasement,
+                hasGarage,
+                hasPool
+            });
+
+            const laborEstimate = calculateLaborRequirements({
+                squareFeet,
+                numFloors,
+                qualityLevel,
+                hasBasement,
+                hasGarage,
+                hasPool
+            });
+
+            const totalLaborCost = laborEstimate.totalDailyLaborCost * timeEstimate.totalDays;
+
+            displayResults({
+                squareFeet,
+                numFloors,
+                qualityLevel,
+                materialGrade,
+                baseCost,
+                materialCost,
+                additionalCosts,
+                totalCost,
+                timeEstimate,
+                laborEstimate,
+                totalLaborCost
+            });
+        }
+
+        function displayResults(results) {
+            const resultTable = document.getElementById('resultTable');
+            resultTable.innerHTML = `
+                <tr>
+                    <th>Square Footage:</th>
+                    <td>${results.squareFeet} sq ft</td>
+                </tr>
+                <tr>
+                    <th>Number of Floors:</th>
+                    <td>${results.numFloors}</td>
+                </tr>
+                <tr>
+                    <th>Quality Level:</th>
+                    <td>${results.qualityLevel.charAt(0).toUpperCase() + results.qualityLevel.slice(1)}</td>
+                </tr>
+                <tr>
+                    <th>Material Grade:</th>
+                    <td>${results.materialGrade.charAt(0).toUpperCase() + results.materialGrade.slice(1)}</td>
+                </tr>
+                <tr>
+                    <th>Base Cost:</th>
+                    <td>${formatIndianRupees(results.baseCost)}</td>
+                </tr>
+                <tr>
+                    <th>Material Adjusted Cost:</th>
+                    <td>${formatIndianRupees(results.materialCost)}</td>
+                </tr>
+                ${Object.entries(results.additionalCosts).map(([feature, cost]) => `
+                    <tr>
+                        <th>${feature}:</th>
+                        <td>${formatIndianRupees(cost)}</td>
+                    </tr>
+                `).join('')}
+                <tr class="table-warning">
+                    <th>Total Labor Cost:</th>
+                    <td>${formatIndianRupees(results.totalLaborCost)}</td>
+                </tr>
+                <tr class="table-primary">
+                    <th>Total Estimated Cost:</th>
+                    <td>${formatIndianRupees(results.totalCost + results.totalLaborCost)}</td>
+                </tr>
+                <tr class="table-info">
+                    <th>Estimated Construction Time:</th>
+                    <td>${results.timeEstimate.totalDays} days (${Math.round(results.timeEstimate.totalDays/30)} months)</td>
+                </tr>
+            `;
+
+            const timelineDetails = document.getElementById('timelineDetails');
+            timelineDetails.innerHTML = `
+                <div class="timeline-info">
+                    <h4>Construction Timeline Breakdown:</h4>
+                    <ul class="list-group">
+                        <li class="list-group-item">Foundation Phase: ${results.timeEstimate.phases.foundation} days</li>
+                        <li class="list-group-item">Structure Phase: ${results.timeEstimate.phases.structure} days</li>
+                        <li class="list-group-item">Finishing Phase: ${results.timeEstimate.phases.finishing} days</li>
+                        <li class="list-group-item">Fixtures & Final Touches: ${results.timeEstimate.phases.fixtures} days</li>
+                    </ul>
+                </div>
+
+                <div class="labor-info">
+                    <h4>Labor Requirements:</h4>
+                    <div class="labor-breakdown">
+                        <h5>Daily Worker Requirements:</h5>
+                        <ul class="list-group">
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Skilled Workers (Masons, Carpenters)
+                                <span class="badge bg-primary rounded-pill">${results.laborEstimate.workers.skilled}</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Unskilled Workers (Helpers)
+                                <span class="badge bg-secondary rounded-pill">${results.laborEstimate.workers.unskilled}</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Technical Workers (Electricians, Plumbers)
+                                <span class="badge bg-info rounded-pill">${results.laborEstimate.workers.technical}</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Total Workers Required
+                                <span class="badge bg-success rounded-pill">${results.laborEstimate.totalWorkers}</span>
+                            </li>
+                        </ul>
+                        
+                        <h5 class="mt-3">Daily Labor Costs:</h5>
+                        <ul class="list-group">
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Skilled Workers Cost
+                                <span>${formatIndianRupees(results.laborEstimate.dailyLaborCost.skilled)}/day</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Unskilled Workers Cost
+                                <span>${formatIndianRupees(results.laborEstimate.dailyLaborCost.unskilled)}/day</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Technical Workers Cost
+                                <span>${formatIndianRupees(results.laborEstimate.dailyLaborCost.technical)}/day</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                Total Daily Labor Cost
+                                <span>${formatIndianRupees(results.laborEstimate.totalDailyLaborCost)}/day</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('resultSection').style.display = 'block';
+            document.getElementById('estimationForm').parentElement.parentElement.style.display = 'none';
+        }
+
+        function resetForm() {
+            document.getElementById('estimationForm').reset();
+            document.getElementById('resultSection').style.display = 'none';
+            document.getElementById('estimationForm').parentElement.parentElement.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
